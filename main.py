@@ -9,6 +9,9 @@ import torch
 from torch.distributed import init_process_group, destroy_process_group
 
 from Trainer.vit import MaskGIT
+import yaml
+
+from Trainer.vqgan_trainer import VQ_GAN_Trainer
 
 
 def main(args):
@@ -81,10 +84,22 @@ if __name__ == "__main__":
     parser.add_argument("--test-only",    action='store_true',            help="only evaluate the model")
     parser.add_argument("--resume",       action='store_true',            help="resume training of the model")
     parser.add_argument("--debug",        action='store_true',            help="debug")
+    parser.add_argument("--train_config", type=str, default="",         help="training details of vqgan")
     args = parser.parse_args()
     args.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     args.iter = 0
     args.global_epoch = 0
+
+    training_vqgan = False
+    if args.train_config != "":
+        with open(args.train_config, "r") as f:
+            path = os.path.join(
+                            os.path.dirname('D:\\discrete representation\\Maskgit-pytorch\\Config'),
+                            args.train_config
+            )
+            configs = yaml.load(f, Loader=yaml.FullLoader)
+        vq_gan = VQ_GAN_Trainer(configs["data"], configs["model"])
+        vq_gan.fit()
 
     if args.seed > 0: # Set the seed for reproducibility
         torch.manual_seed(args.seed)
