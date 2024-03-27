@@ -11,7 +11,7 @@ class VQ_GAN_Trainer(object):
         self.data_configs = data_configs
         self.model_configs = model_configs
         self.model_params = self.model_configs['params']
-        self.max_epoch = data_configs.max_epoach
+        self.max_epoch = data_configs['max_epoch']
 
     def get_network(self, archi='vqgan', pretrained_file=None):
         if archi == 'vqgan':
@@ -20,16 +20,17 @@ class VQ_GAN_Trainer(object):
                             self.model_params['lossconfig'],
                             self.model_params['n_embed'],
                             self.model_params['embed_dim'],
+                            self.model_configs['learning_rate'],
             )
         else:
             raise NotImplementedError
         return model
 
     def get_data_loader(self):
-        transform = transforms.Compose([transforms.ToTensor(), transforms.Resize((32, 32))])
+        transform = transforms.Compose([transforms.ToTensor(), transforms.Resize((32, 32), antialias=None)])
         if self.data_configs['dataset'] == 'cifar10':
-            train_dataset = CIFAR10(root='', train=True, download=True, transform=transform)
-            test_dataset = CIFAR10(root='', train=False, download=True, transform=transform)
+            train_dataset = CIFAR10(root='~/data/cifar', train=True, download=True, transform=transform)
+            test_dataset = CIFAR10(root='~/data/cifar', train=False, download=True, transform=transform)
         else:
             raise NotImplementedError
         train_loader = DataLoader(train_dataset, batch_size=self.data_configs['batch_size'], shuffle=True)
@@ -41,6 +42,7 @@ class VQ_GAN_Trainer(object):
         train_loader, test_loader = self.get_data_loader()
         trainer = pl.Trainer(max_epochs=self.max_epoch)
         trainer.fit(model, train_loader, test_loader)
+        trainer.save_checkpoint('D:/discrete representation/Maskgit-pytorch/pretrained_maskgit/VQGAN/last.ckpt')
 
 
     #

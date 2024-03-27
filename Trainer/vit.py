@@ -54,7 +54,8 @@ class MaskGIT(Trainer):
         """
         if archi == "vit":
             model = MaskTransformer(
-                img_size=self.args.img_size, hidden_dim=768, codebook_size=self.codebook_size, depth=24, heads=16, mlp_dim=3072, dropout=0.1     # Small
+                img_size=self.args.img_size, hidden_dim=768, codebook_size=self.codebook_size, depth=8, heads=16, mlp_dim=3072, dropout=0.1     # Tiny
+                # img_size=self.args.img_size, hidden_dim=768, codebook_size=self.codebook_size, depth=24, heads=16, mlp_dim=3072, dropout=0.1     # Small
                 # img_size=self.args.img_size, hidden_dim=1024, codebook_size=1024, depth=32, heads=16, mlp_dim=3072, dropout=0.1  # Big
                 # img_size=self.args.img_size, hidden_dim=1024, codebook_size=1024, depth=48, heads=16, mlp_dim=3072, dropout=0.1  # Huge
             )
@@ -181,7 +182,8 @@ class MaskGIT(Trainer):
 
             # VQGAN encoding to img tokens
             with torch.no_grad():
-                emb, _, [_, _, code] = self.ae.encode(x)
+                emb, to_return = self.ae.encode(x)
+                code = to_return["encodings"]
                 code = code.reshape(x.size(0), self.patch_size, self.patch_size)
 
             # Mask the encoded tokens

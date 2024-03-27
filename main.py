@@ -92,11 +92,11 @@ if __name__ == "__main__":
 
     training_vqgan = False
     if args.train_config != "":
-        with open(args.train_config, "r") as f:
-            path = os.path.join(
-                            os.path.dirname('D:\\discrete representation\\Maskgit-pytorch\\Config'),
-                            args.train_config
-            )
+        path = os.path.join(
+            'D:\\discrete representation\\Maskgit-pytorch\\Config',
+            args.train_config
+        )
+        with open(path, "r") as f:
             configs = yaml.load(f, Loader=yaml.FullLoader)
         vq_gan = VQ_GAN_Trainer(configs["data"], configs["model"])
         vq_gan.fit()

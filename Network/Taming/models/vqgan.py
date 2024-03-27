@@ -7,6 +7,7 @@ from Network.Taming.util import instantiate_from_config
 
 from Network.Taming.modules.diffusionmodules.model import Encoder, Decoder
 from Network.Taming.modules.vqvae.quantize import VectorQuantizer2 as VectorQuantizer
+from semivq import VectorQuant
 
 
 class VQModel(pl.LightningModule):
@@ -15,6 +16,7 @@ class VQModel(pl.LightningModule):
                  lossconfig,
                  n_embed,
                  embed_dim,
+                 learning_rate=1e-3,
                  ckpt_path=None,
                  ignore_keys=[],
                  image_key="image",
@@ -29,9 +31,11 @@ class VQModel(pl.LightningModule):
         self.embed_dim = embed_dim
         self.encoder = Encoder(**ddconfig)
         self.decoder = Decoder(**ddconfig)
-        # self.loss = instantiate_from_config(lossconfig)
-        self.quantize = VectorQuantizer(n_embed, embed_dim, beta=0.25,
-                                        remap=remap, sane_index_shape=sane_index_shape)
+        self.learning_rate = learning_rate
+        self.loss = instantiate_from_config(lossconfig)
+        # self.quantize = VectorQuantizer(n_embed, embed_dim, beta=0.25,
+        #                                 remap=remap, sane_index_shape=sane_index_shape)
+        self.quantize = VectorQuant(feature_size=embed_dim, num_codes=n_embed)
         self.quant_conv = torch.nn.Conv2d(ddconfig["z_channels"], embed_dim, 1)
         self.post_quant_conv = torch.nn.Conv2d(embed_dim, ddconfig["z_channels"], 1)
         if ckpt_path is not None:
@@ -57,8 +61,10 @@ class VQModel(pl.LightningModule):
     def encode(self, x):
         h = self.encoder(x)
         h = self.quant_conv(h)
-        quant, emb_loss, info = self.quantize(h)
-        return quant, emb_loss, info
+        # quant, emb_loss, info = self.quantize(h)
+        # return quant, emb_loss, info
+        quant, to_return = self.quantize(h)
+        return quant, to_return
 
     def decode(self, quant):
         quant = self.post_quant_conv(quant)
@@ -73,15 +79,16 @@ class VQModel(pl.LightningModule):
         return dec
 
     def forward(self, input):
-        quant, diff, _ = self.encode(input)
+        quant, to_return = self.encode(input)
+        diff = to_return['loss']
         dec = self.decode(quant)
         return dec, diff
 
     def get_input(self, batch, k):
-        x = batch[k]
-        if len(x.shape) == 3:
-            x = x[..., None]
-        x = x.permute(0, 3, 1, 2).to(memory_format=torch.contiguous_format)
+        x = batch[0]
+        # if len(x.shape) == 3:
+        #     x = x[..., None]
+        # x = x.permute(0, 3, 1, 2).to(memory_format=torch.contiguous_format)
         return x.float()
 
     def training_step(self, batch, batch_idx, optimizer_idx):
@@ -137,25 +144,4 @@ class VQModel(pl.LightningModule):
     def get_last_layer(self):
         return self.decoder.conv_out.weight
 
-    def log_images(self, batch, **kwargs):
-        log = dict()
-        x = self.get_input(batch, self.image_key)
-        x = x.to(self.device)
-        xrec, _ = self(x)
-        if x.shape[1] > 3:
-            # colorize with random projection
-            assert xrec.shape[1] > 3
-            x = self.to_rgb(x)
-            xrec = self.to_rgb(xrec)
-        log["inputs"] = x
-        log["reconstructions"] = xrec
-        return log
-
-    def to_rgb(self, x):
-        assert self.image_key == "segmentation"
-        if not hasattr(self, "colorize"):
-            self.register_buffer("colorize", torch.randn(3, x.shape[1], 1, 1).to(x))
-        x = F.conv2d(x, weight=self.colorize)
-        x = 2.*(x-x.min())/(x.max()-x.min()) - 1.
-        return x
 
