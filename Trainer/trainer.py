@@ -145,7 +145,17 @@ class Trainer(object):
             train_loader = train_loader.unbatched().shuffle(1000).batched(self.args.bsize)
 
             return train_loader, None
-
+        elif self.args.data == 'celeba':
+            data=ImageFolder(
+                        root='/home/zwh/img_align_celeba', 
+                        transform=transforms.Compose([
+                                                        transforms.Resize(self.args.img_size),
+                                                        transforms.RandomCrop((self.args.img_size, self.args.img_size)),
+                                                        transforms.RandomHorizontalFlip(),
+                                                        transforms.ToTensor(),
+                                                    ])
+                        )
+            data_train, data_test =torch.utils.data.random_split(data, [int(len(data) * 0.8), len(data) - int(0.8 * len(data))])
         train_sampler = DistributedSampler(data_train, shuffle=True) if self.args.is_multi_gpus else None
         test_sampler = DistributedSampler(data_test, shuffle=True) if self.args.is_multi_gpus else None
 

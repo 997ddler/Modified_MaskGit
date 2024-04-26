@@ -43,18 +43,18 @@ class VQLPIPSWithDiscriminator(nn.Module):
         # self.perceptual_loss = LPIPS().eval()
         self.perceptual_weight = perceptual_weight
 
-        self.discriminator = NLayerDiscriminator(input_nc=disc_in_channels,
-                                                 n_layers=disc_num_layers,
-                                                 use_actnorm=use_actnorm,
-                                                 ndf=disc_ndf
-                                                 ).apply(weights_init)
-        self.discriminator_iter_start = disc_start
-        if disc_loss == "hinge":
-            self.disc_loss = hinge_d_loss
-        elif disc_loss == "vanilla":
-            self.disc_loss = vanilla_d_loss
-        else:
-            raise ValueError(f"Unknown GAN loss '{disc_loss}'.")
+#        self.discriminator = NLayerDiscriminator(input_nc=disc_in_channels,
+#                                                 n_layers=disc_num_layers,
+#                                                 use_actnorm=use_actnorm,
+#                                                 ndf=disc_ndf
+#                                                 ).apply(weights_init)
+#        self.discriminator_iter_start = disc_start
+#        if disc_loss == "hinge":
+#            self.disc_loss = hinge_d_loss
+#        elif disc_loss == "vanilla":
+#            self.disc_loss = vanilla_d_loss
+#        else:
+#            raise ValueError(f"Unknown GAN loss '{disc_loss}'.")
         print(f"VQLPIPSWithDiscriminator running with {disc_loss} loss.")
         self.disc_factor = disc_factor
         self.discriminator_weight = disc_weight
@@ -73,7 +73,7 @@ class VQLPIPSWithDiscriminator(nn.Module):
         d_weight = d_weight * self.discriminator_weight
         return d_weight
 
-    def forward(self, codebook_loss, inputs, reconstructions, optimizer_idx,
+    def forward(self, codebook_loss, inputs, reconstructions, optimizer_idx=-1,
                 global_step, last_layer=None, cond=None, split="train"):
         rec_loss = torch.abs(inputs.contiguous() - reconstructions.contiguous())
         # if self.perceptual_weight > 0:
@@ -87,50 +87,50 @@ class VQLPIPSWithDiscriminator(nn.Module):
         nll_loss = torch.mean(nll_loss)
 
         # now the GAN part
-        if optimizer_idx == 0:
+        # if optimizer_idx == 0:
             # generator update
-            if cond is None:
-                assert not self.disc_conditional
-                logits_fake = self.discriminator(reconstructions.contiguous())
-            else:
-                assert self.disc_conditional
-                logits_fake = self.discriminator(torch.cat((reconstructions.contiguous(), cond), dim=1))
-            g_loss = -torch.mean(logits_fake)
+        #if cond is None:
+        #    assert not self.disc_conditional
+        #    logits_fake = self.discriminator(reconstructions.contiguous())
+        #else:
+        #    assert self.disc_conditional
+        #    logits_fake = self.discriminator(torch.cat((reconstructions.contiguous(), cond), dim=1))
+        #g_loss = -torch.mean(logits_fake)
 
-            try:
-                d_weight = self.calculate_adaptive_weight(nll_loss, g_loss, last_layer=last_layer)
-            except RuntimeError:
-                assert not self.training
-                d_weight = torch.tensor(0.0)
+        #try:
+        #    d_weight = self.calculate_adaptive_weight(nll_loss, g_loss, last_layer=last_layer)
+        #except RuntimeError:
+        #    assert not self.training
+        #    d_weight = torch.tensor(0.0)
 
-            disc_factor = adopt_weight(self.disc_factor, global_step, threshold=self.discriminator_iter_start)
-            loss = nll_loss + d_weight * disc_factor * g_loss + self.codebook_weight * codebook_loss.mean()
+        #disc_factor = adopt_weight(self.disc_factor, global_step, threshold=self.discriminator_iter_start)
+        loss = nll_loss + self.codebook_weight * codebook_loss.mean() # + d_weight * disc_factor * g_loss
 
-            log = {"{}/total_loss".format(split): loss.clone().detach().mean(),
-                   "{}/quant_loss".format(split): codebook_loss.detach().mean(),
-                   "{}/nll_loss".format(split): nll_loss.detach().mean(),
-                   "{}/rec_loss".format(split): rec_loss.detach().mean(),
-                   "{}/p_loss".format(split): p_loss.detach().mean(),
-                   "{}/d_weight".format(split): d_weight.detach(),
-                   "{}/disc_factor".format(split): torch.tensor(disc_factor),
-                   "{}/g_loss".format(split): g_loss.detach().mean(),
-                   }
-            return loss, log
+        log = {"{}/total_loss".format(split): loss.clone().detach().mean(),
+                "{}/quant_loss".format(split): codebook_loss.detach().mean(),
+                #"{}/nll_loss".format(split): nll_loss.detach().mean(),
+                #"{}/rec_loss".format(split): rec_loss.detach().mean(),
+                #"{}/p_loss".format(split): p_loss.detach().mean(),
+                #"{}/d_weight".format(split): d_weight.detach(),
+                #"{}/disc_factor".format(split): torch.tensor(disc_factor),
+                #"{}/g_loss".format(split): g_loss.detach().mean(),
+                }
+        return loss, log
 
-        if optimizer_idx == 1:
+        #if optimizer_idx == 1:
             # second pass for discriminator update
-            if cond is None:
-                logits_real = self.discriminator(inputs.contiguous().detach())
-                logits_fake = self.discriminator(reconstructions.contiguous().detach())
-            else:
-                logits_real = self.discriminator(torch.cat((inputs.contiguous().detach(), cond), dim=1))
-                logits_fake = self.discriminator(torch.cat((reconstructions.contiguous().detach(), cond), dim=1))
+        #    if cond is None:
+        #        logits_real = self.discriminator(inputs.contiguous().detach())
+        #        logits_fake = self.discriminator(reconstructions.contiguous().detach())
+        #    else:
+        #        logits_real = self.discriminator(torch.cat((inputs.contiguous().detach(), cond), dim=1))
+        #        logits_fake = self.discriminator(torch.cat((reconstructions.contiguous().detach(), cond), dim=1))
 
-            disc_factor = adopt_weight(self.disc_factor, global_step, threshold=self.discriminator_iter_start)
-            d_loss = disc_factor * self.disc_loss(logits_real, logits_fake)
+        #    disc_factor = adopt_weight(self.disc_factor, global_step, threshold=self.discriminator_iter_start)
+        #    d_loss = disc_factor * self.disc_loss(logits_real, logits_fake)
 
-            log = {"{}/disc_loss".format(split): d_loss.clone().detach().mean(),
-                   "{}/logits_real".format(split): logits_real.detach().mean(),
-                   "{}/logits_fake".format(split): logits_fake.detach().mean()
-                   }
-            return d_loss, log
+        #    log = {"{}/disc_loss".format(split): d_loss.clone().detach().mean(),
+        #           "{}/logits_real".format(split): logits_real.detach().mean(),
+        #           "{}/logits_fake".format(split): logits_fake.detach().mean()
+        #           }
+        #    return d_loss, log

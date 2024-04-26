@@ -35,6 +35,7 @@ class MaskGIT(Trainer):
         self.patch_size = self.args.img_size // 2**(self.ae.encoder.num_resolutions-1)     # Load VQGAN
         self.criterion = self.get_loss("cross_entropy", label_smoothing=0.1)    # Get cross entropy loss
         self.optim = self.get_optim(self.vit, self.args.lr, betas=(0.9, 0.96))  # Get Adam Optimizer with weight decay
+        self.loss_record = []
         
         # Load data if aim to train or test the model
         if not self.args.debug:
@@ -54,8 +55,8 @@ class MaskGIT(Trainer):
         """
         if archi == "vit":
             model = MaskTransformer(
-                img_size=self.args.img_size, hidden_dim=768, codebook_size=self.codebook_size, depth=8, heads=16, mlp_dim=3072, dropout=0.1     # Tiny
-                # img_size=self.args.img_size, hidden_dim=768, codebook_size=self.codebook_size, depth=24, heads=16, mlp_dim=3072, dropout=0.1     # Small
+                #img_size=self.args.img_size, hidden_dim=768, codebook_size=self.codebook_size, depth=8, heads=16, mlp_dim=3072, dropout=0.1     # Tiny
+                img_size=self.args.img_size, hidden_dim=768, codebook_size=self.codebook_size, depth=8, heads=16, mlp_dim=3072, dropout=0.1     # Small
                 # img_size=self.args.img_size, hidden_dim=1024, codebook_size=1024, depth=32, heads=16, mlp_dim=3072, dropout=0.1  # Big
                 # img_size=self.args.img_size, hidden_dim=1024, codebook_size=1024, depth=48, heads=16, mlp_dim=3072, dropout=0.1  # Huge
             )
@@ -80,6 +81,7 @@ class MaskGIT(Trainer):
         elif archi == "autoencoder":
             # Load config
             config = OmegaConf.load(self.args.vqgan_folder + "model.yaml")
+            #model = VQModel(vqparams=config.model.vq_params, **config.model.params, )
             model = VQModel(**config.model.params)
             checkpoint = torch.load(self.args.vqgan_folder + "last.ckpt", map_location="cpu")["state_dict"]
             # Load network
@@ -175,23 +177,26 @@ class MaskGIT(Trainer):
         for x, y in bar:
             x = x.to(self.args.device)
             y = y.to(self.args.device)
-            x = 2 * x - 1  # normalize from x in [0,1] to [-1,1] for VQGAN
+            x = 2 * x - 1  # normalize from x in [0,1] to [-1,1] for VQGAN # when i train a VQ GAN i didn't transform the data to -1, 1 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
             # Drop xx% of the condition for cfg
             drop_label = torch.empty(y.size()).uniform_(0, 1) < self.args.drop_label
 
             # VQGAN encoding to img tokens
             with torch.no_grad():
-                emb, to_return = self.ae.encode(x)
-                code = to_return["encodings"]
+                # emb, to_return = self.ae.encode(x)
+                # code = to_return["q"]
+                # code = code.reshape(x.size(0), self.patch_size, self.patch_size)
+                emb, _, [_, _, code] = self.ae.encode(x)
                 code = code.reshape(x.size(0), self.patch_size, self.patch_size)
 
             # Mask the encoded tokens
             masked_code, mask = self.get_mask_code(code, value=self.args.mask_value, codebook_size=self.codebook_size)
-
+            #print('shape of masked code:' + str(masked_code.shape))
             with torch.cuda.amp.autocast():                             # half precision
                 pred = self.vit(masked_code, y, drop_label=drop_label)  # The unmasked tokens prediction
                 # Cross-entropy loss
+                # print('shape of pred code:' + str(pred))
                 loss = self.criterion(pred.reshape(-1, self.codebook_size + 1), code.view(-1)) / self.args.grad_cum
 
             # update weight if accumulation of gradient is done
@@ -265,6 +270,9 @@ class MaskGIT(Trainer):
                       f" Loss {train_loss:.4f},"
                       f" Time: {clock_time // 3600:.0f}h {(clock_time % 3600) // 60:.0f}min {clock_time % 60:.2f}s")
             self.args.global_epoch += 1
+        # self.loss_record.append()
+        # with open(file='/home/zwh/Modified_MaskGit/recording', mode='a') as f:
+        #    f.write(self.loss_record)
 
     def eval(self):
         """ Evaluation of the model"""
@@ -298,9 +306,9 @@ class MaskGIT(Trainer):
                 _x = self.ae.decode_code(torch.clamp(code, 0, self.codebook_size-1))
                 if mask is not None:
                     # Decoding reel code with mask to hide
-                    mask = mask.view(code.size(0), 1, self.patch_size, self.patch_size).float()
-                    __x2 = _x * (1 - F.interpolate(mask, (self.args.img_size, self.args.img_size)).to(self.args.device))
-                    l_visual.append(__x2)
+                    #mask = mask.view(code.size(0), 1, self.patch_size, self.patch_size).float()
+                    #__x2 = _x * (1 - F.interpolate(mask, (self.args.img_size, self.args.img_size)).to(self.args.device))
+                    l_visual.append(_x)
             if masked_code is not None:
                 # Decoding masked code
                 masked_code = masked_code.view(code.size(0), self.patch_size, self.patch_size)

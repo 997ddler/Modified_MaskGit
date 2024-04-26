@@ -318,16 +318,15 @@ class VectorQuantizer2(nn.Module):
         if self.remap is not None:
             indices = indices.reshape(shape[0], -1)  # add batch axis
             indices = self.unmap_to_all(indices)
-            indices = indices.reshape(-1)  # flatten again
-
+            indices = indices.reshape(-1)  # flatten again  
         # get quantized latent vectors
         z_q = self.embedding(indices)
-        
+        # print('codebook_entry_0:' + str(z_q.shape))
         if shape is not None:
             z_q = z_q.view(shape)
             # reshape back to match original input shape
             z_q = z_q.permute(0, 3, 1, 2).contiguous()
-
+        # print('codebook_entry_1:' + str(z_q.shape))
         return z_q
 
 

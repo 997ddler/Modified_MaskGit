@@ -114,7 +114,6 @@ class VectorQuant(_VQBaseLayer):
 		# reshape to (BHWG x F//G) and compute distance
 		z_shape = z.shape[:-1]
 		z_flat = z.view(z.size(0), -1, z.size(-1))
-
 		if hasattr(self, 'affine_transform'):
 			self.affine_transform.update_running_statistics(z_flat, codebook)
 			codebook, alpha = self.affine_transform(codebook)
@@ -140,7 +139,9 @@ class VectorQuant(_VQBaseLayer):
 
 		if self.training and hasattr(self, 'inplace_codebook_optimizer'):
 			# update codebook inplace 
-			((z_q - z.detach()) ** 2).mean().backward(retain_graph=True)
+			inplace_loss = ((z_q - z.detach()) ** 2).mean()
+			# inplace_loss.requires_grad_(True)
+			inplace_loss.backward(retain_graph=True)
 			self.inplace_codebook_optimizer.step()
 			self.inplace_codebook_optimizer.zero_grad()
 
@@ -162,10 +163,10 @@ class VectorQuant(_VQBaseLayer):
 	@torch.no_grad()
 	def get_codebook(self):
 		cb = self.codebook.weight
-		# if hasattr(self, 'affine_transform'):
-		# 	cb = self.affine_transform(cb)
+		if hasattr(self, 'affine_transform'):
+		 	cb, alpha = self.affine_transform(cb)
 		return cb
-
+	
 	@torch.no_grad()
 	def get_alpha(self):
 		if hasattr(self, 'affine_transform'):
@@ -185,7 +186,6 @@ class VectorQuant(_VQBaseLayer):
 		######
 
 		z = self.prepare_inputs(z, self.groups)
-
 		if not self.enabled:
 			z = self.to_original_format(z)
 			return z, {}
@@ -196,9 +196,6 @@ class VectorQuant(_VQBaseLayer):
 
 		z_q, d, q = self.quantize(self.codebook.weight, z)
 
-		shape = z_q.view(-1, self.feature_size).shape[0]
-		encodings = torch.zeros(shape, self.num_codes, device=z_q.device)
-		encodings.scatter_(1, q.view(-1, 1), 1)
 		e_mean = F.one_hot(q, num_classes=self.num_codes).view(-1, self.num_codes).float().mean(0)
 		perplexity = torch.exp(-torch.sum(e_mean * torch.log(e_mean + 1e-7)))
 		active_ratio = q.unique().numel() / self.num_codes * 100
@@ -211,7 +208,6 @@ class VectorQuant(_VQBaseLayer):
 			'loss': self.compute_loss(z, z_q).mean(),
 			'perplexity': perplexity,
 			'active_ratio': active_ratio,
-			'encodings': encodings,
 		}
 
 		z_q = self.straight_through_approximation(z, z_q)
@@ -224,3 +220,17 @@ class VectorQuant(_VQBaseLayer):
 			return self.affine_transform.get_last_mean()
 		return None
 	
+	def get_codebook_entry(self, indices, shape):
+
+	# get quantized latent vectors
+		codebook = self.get_codebook()
+		z_q = F.embedding(indices, codebook)
+		#print(z_q.shape)
+		#z_q = self.to_original_format(z_q)
+		#print(shape)
+		if shape is not None:
+			z_q = z_q.view(shape)
+			# reshape back to match original input shape
+			z_q = z_q.permute(0, 3, 1, 2).contiguous()
+
+		return z_q

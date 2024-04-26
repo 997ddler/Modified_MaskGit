@@ -52,6 +52,7 @@ def ddp_setup():
 
 def launch_multi_main(args):
     """ Launch multi training"""
+    # os.environ["LOCAL_RANK"] = 0
     ddp_setup()
     args.device = int(os.environ["LOCAL_RANK"])
     args.is_master = args.device == 0
@@ -76,7 +77,7 @@ if __name__ == "__main__":
     parser.add_argument('--img-size',     type=int,   default=256,        help="image size")
     parser.add_argument("--bsize",        type=int,   default=256,        help="batch size")
     parser.add_argument("--mask-value",   type=int,   default=1024,       help="number of epoch")
-    parser.add_argument("--lr",           type=float, default=1e-4,       help="learning rate to train the transformer")
+    parser.add_argument("--lr",           type=float, default=5e-5,       help="learning rate to train the transformer")
     parser.add_argument("--cfg_w",        type=float, default=3,          help="classifier free guidance wight")
     parser.add_argument("--r_temp",       type=float, default=4.5,        help="Gumbel noise temperature when sampling")
     parser.add_argument("--sm_temp",      type=float, default=1.,         help="temperature before softmax when sampling")
@@ -84,22 +85,15 @@ if __name__ == "__main__":
     parser.add_argument("--test-only",    action='store_true',            help="only evaluate the model")
     parser.add_argument("--resume",       action='store_true',            help="resume training of the model")
     parser.add_argument("--debug",        action='store_true',            help="debug")
-    parser.add_argument("--train_config", type=str, default="",         help="training details of vqgan")
+    parser.add_argument("--train_config", type=str,   default="",         help="training details of vqgan")
+    parser.add_argument("--local_rank", type=int)
+    # parser.add_argument("--gpu_set", type=int, default="2", help="select the gpu to train")
     args = parser.parse_args()
     args.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     args.iter = 0
     args.global_epoch = 0
 
     training_vqgan = False
-    if args.train_config != "":
-        path = os.path.join(
-            'D:\\discrete representation\\Maskgit-pytorch\\Config',
-            args.train_config
-        )
-        with open(path, "r") as f:
-            configs = yaml.load(f, Loader=yaml.FullLoader)
-        vq_gan = VQ_GAN_Trainer(configs["data"], configs["model"])
-        vq_gan.fit()
 
     if args.seed > 0: # Set the seed for reproducibility
         torch.manual_seed(args.seed)
@@ -110,13 +104,19 @@ if __name__ == "__main__":
         torch.backends.cudnn.deterministic = True
 
     world_size = torch.cuda.device_count()
-
-    if world_size > 1:  # launch multi training
-        print(f"{world_size} GPU(s) found, launch multi-gpus training")
-        args.is_multi_gpus = True
-        launch_multi_main(args)
-    else:  # launch single Gpu training
-        print(f"{world_size} GPU found")
-        args.is_master = True
-        args.is_multi_gpus = False
-        main(args)
+    if args.train_config != "":
+        path = os.path.join(
+            '/home/zwh/Modified_MaskGit/pretrained_maskgit/',
+            args.train_config,
+            'model.yaml'
+        )
+        with open(path, "r") as f:
+            configs = yaml.load(f, Loader=yaml.FullLoader)
+        vq_gan = VQ_GAN_Trainer(configs["data"], configs["model"])
+        vq_gan.fit()
+    torch.cuda.set_device(0)
+    print(f"{world_size} GPU found")
+    args.is_master = True
+    args.is_multi_gpus = False
+    main(args)
+            
