@@ -18,15 +18,11 @@ class VQ_GAN_Trainer(object):
 
     def get_network(self, archi='vqgan', pretrained_file=None):
         if archi == 'vqgan':
-            n_embed = self.model_params['n_embed']
-            embed_dim = self.model_params['embed_dim']
             model = VQModel(
                             self.model_params['ddconfig'],
                             self.model_params['lossconfig'],
-          #                  self.model_configs['vq_params'],
-          #                  self.model_configs['learning_rate'],
-                            n_embed,
-                            embed_dim
+                            self.model_configs['vq_params'],
+                            self.model_configs['learning_rate'],
             )
         else:
             raise NotImplementedError
@@ -34,9 +30,11 @@ class VQ_GAN_Trainer(object):
 
     def get_data_loader(self):
         transform = transforms.Compose([
-                                         transforms.ToTensor(),
-                                         transforms.Resize((128, 128),antialias=None),
-                                         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+                                        transforms.Resize(128),
+                                        transforms.RandomCrop((128, 128)),
+                                        transforms.RandomHorizontalFlip(),
+                                        transforms.ToTensor(),
+                                        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
                                         ])
         if self.data_configs['dataset'] == 'cifar10':
             train_dataset = CIFAR10(root='/home/zwh/data/cifar', train=True, download=True, transform=transform)
@@ -54,7 +52,15 @@ class VQ_GAN_Trainer(object):
         model = self.get_network()
         train_loader, test_loader = self.get_data_loader()
         model.set_iter_config(len(train_loader) * self.warm_epoch, len(train_loader) * self.max_epoch)
-        trainer = pl.Trainer(max_epochs=self.max_epoch, accelerator='gpu', devices=[5], log_every_n_steps=100, check_val_every_n_epoch=30)
+        logger = pl.loggers.TensorBoardLogger(save_dir=self.model_configs['log_dir'])
+        trainer = pl.Trainer(
+                            max_epochs=self.max_epoch,
+                            accelerator='gpu',
+                            devices=[6],
+                            log_every_n_steps=100,
+                            check_val_every_n_epoch=45,
+                            logger=logger
+                            )
         trainer.fit(model, train_loader, test_loader)
         trainer.save_checkpoint(self.model_configs['save_path'] + '/last.ckpt')
 

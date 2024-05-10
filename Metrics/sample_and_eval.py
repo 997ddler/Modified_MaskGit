@@ -42,6 +42,7 @@ class SampleAndEval:
             metrics = {f"Eval/{k}": v for k, v in metrics.items()}
             print(metrics)
 
+
     def compute_true_images_features(self, dataloader):
         if len(dataloader.dataset) < self.num_images:
             max_images = len(dataloader.dataset)

@@ -81,8 +81,7 @@ class MaskGIT(Trainer):
         elif archi == "autoencoder":
             # Load config
             config = OmegaConf.load(self.args.vqgan_folder + "model.yaml")
-            #model = VQModel(vqparams=config.model.vq_params, **config.model.params, )
-            model = VQModel(**config.model.params)
+            model = VQModel(vqparams=config.model.vq_params, **config.model.params, )
             checkpoint = torch.load(self.args.vqgan_folder + "last.ckpt", map_location="cpu")["state_dict"]
             # Load network
             model.load_state_dict(checkpoint, strict=False)
@@ -184,19 +183,15 @@ class MaskGIT(Trainer):
 
             # VQGAN encoding to img tokens
             with torch.no_grad():
-                # emb, to_return = self.ae.encode(x)
-                # code = to_return["q"]
-                # code = code.reshape(x.size(0), self.patch_size, self.patch_size)
-                emb, _, [_, _, code] = self.ae.encode(x)
+                emb, to_return = self.ae.encode(x)
+                code = to_return["q"]
                 code = code.reshape(x.size(0), self.patch_size, self.patch_size)
 
             # Mask the encoded tokens
             masked_code, mask = self.get_mask_code(code, value=self.args.mask_value, codebook_size=self.codebook_size)
-            #print('shape of masked code:' + str(masked_code.shape))
             with torch.cuda.amp.autocast():                             # half precision
                 pred = self.vit(masked_code, y, drop_label=drop_label)  # The unmasked tokens prediction
                 # Cross-entropy loss
-                # print('shape of pred code:' + str(pred))
                 loss = self.criterion(pred.reshape(-1, self.codebook_size + 1), code.view(-1)) / self.args.grad_cum
 
             # update weight if accumulation of gradient is done
@@ -284,6 +279,7 @@ class MaskGIT(Trainer):
                   f"gumbel temperature: {self.args.r_temp}")
         # Evaluate the model
         m = self.sae.compute_and_log_metrics(self)
+        #m = self.sae.compute_and_log_metrics(self.ae, self.test_data)
         self.vit.train()
         return m
 

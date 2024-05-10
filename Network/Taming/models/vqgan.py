@@ -12,8 +12,6 @@ class VQModel(pl.LightningModule):
     def __init__(self,
                  ddconfig,
                  lossconfig,
-                 n_embed,
-                 embed_dim,
                  vqparams={},
                  learning_rate=1e-4,
                  ckpt_path=None,
@@ -26,13 +24,9 @@ class VQModel(pl.LightningModule):
                  ):
         super().__init__()
         self.image_key = image_key 
-        # self.n_embed = vqparams['num_codes']
-
-        # self.embed_dim = vqparams['feature_size']
+        self.n_embed = vqparams['num_codes']
+        self.embed_dim = vqparams['feature_size']
         self.codebook_weight = lossconfig['codebook_weight']
-
-        self.n_embed = n_embed
-        self.embed_dim = embed_dim
 
         if 'inplace_optimizer' in vqparams:
             assert 'beta' in vqparams and vqparams['beta'] == 1
@@ -50,9 +44,9 @@ class VQModel(pl.LightningModule):
         # self.loss = instantiate_from_config(lossconfig)
         self.warm_iter = 0
         self.max_iter = 0
-        self.quantize = VectorQuantizer(self.n_embed, self.embed_dim, beta=0.25,
-                                         remap=remap, sane_index_shape=sane_index_shape)
-        #self.quantize = VectorQuant(**vqparams)
+        #self.quantize = VectorQuantizer(self.n_embed, self.embed_dim, beta=0.25,
+        #                                 remap=remap, sane_index_shape=sane_index_shape)
+        self.quantize = VectorQuant(**vqparams)
         self.quant_conv = torch.nn.Conv2d(ddconfig["z_channels"], self.embed_dim, 1)
         self.post_quant_conv = torch.nn.Conv2d(self.embed_dim, ddconfig["z_channels"], 1)
         if ckpt_path is not None:
@@ -78,12 +72,8 @@ class VQModel(pl.LightningModule):
     def encode(self, x):
         h = self.encoder(x)
         h = self.quant_conv(h)
-        quant, emb_loss, info = self.quantize(h)
-        return quant, emb_loss, info
-        # quant, to_return = self.quantize(h)
-        #print('shape of quant:' + str(quant.shape))
-        #print('shape of index of quant:' + str(to_return['q'].shape))
-        #return quant, to_return
+        quant, to_return = self.quantize(h)
+        return quant, to_return
 
     def decode(self, quant):
         quant = self.post_quant_conv(quant)
@@ -91,21 +81,16 @@ class VQModel(pl.LightningModule):
         return dec
 
     def decode_code(self, code_b):
-        #get codebook dimensions
-        #print(self.quantize.e_dim, "e_dim")
         quant_b = self.quantize.get_codebook_entry(code_b.view(-1), (-1, code_b.size(1), code_b.size(2), self.embed_dim))
         dec = self.decode(quant_b)
         return dec
 
     def forward(self, input):
-        quant, diff, _ = self.encode(input)
+        quant, to_return = self.encode(input)
+        diff = to_return['loss']
         dec = self.decode(quant)
-        return dec, diff, 0.0
-        #quant, to_return = self.encode(input)
-        #diff = to_return['loss']
-        #dec = self.decode(quant)
-        #perpelxtiy = to_return['perplexity']
-        #return dec, diff, perpelxtiy
+        perpelxtiy = to_return['perplexity']
+        return dec, diff, perpelxtiy
 
     def get_input(self, batch, k):
         x = batch[0]
@@ -119,14 +104,13 @@ class VQModel(pl.LightningModule):
         xrec, qloss, perplexity = self(x)
 
         rec_loss = ((x.contiguous() - xrec.contiguous()) ** 2).mean()
-        ae_loss = rec_loss + self.codebook_weight * qloss.mean()
+        ae_loss = rec_loss + self.codebook_weight * qloss
         log_dict_ae = {
             "train/perplexity" : perplexity,
-            "train/aeloss"  : ae_loss,
             "train/recloss" : rec_loss,
             "train/cmtloss" : qloss,
+            "train/aeloss"  : ae_loss,
         }
-        # self.log("train/aeloss", aeloss, prog_bar=True, logger=True, on_step=True, on_epoch=True)
         self.log_dict(log_dict_ae, prog_bar=True, logger=True, on_epoch=True, on_step=True)
         return ae_loss
 
@@ -137,7 +121,7 @@ class VQModel(pl.LightningModule):
 
         # rec_loss = torch.abs(x.contiguous() - xrec.contiguous()).mean()
         rec_loss = ((x.contiguous() - xrec.contiguous()) ** 2).mean()
-        ae_loss = rec_loss + self.codebook_weight * qloss.mean()
+        ae_loss = rec_loss + self.codebook_weight * qloss
         log_dict = {
             "val/aeloss"  : ae_loss,
             "val/recloss" : rec_loss,
@@ -145,19 +129,6 @@ class VQModel(pl.LightningModule):
             "val/cmtloss" : qloss,
         }
         self.log_dict(log_dict)
-        # aeloss, log_dict_ae = self.loss(qloss, x, xrec, 0, self.global_step,
-        #                                    last_layer=self.get_last_layer(), split="val")
-
-        #discloss, log_dict_disc = self.loss(qloss, x, xrec, 1, self.global_step,
-        #                                    last_layer=self.get_last_layer(), split="val")
-        #rec_loss = log_dict_ae["val/rec_loss"]
-        #self.log("val/rec_loss", rec_loss,
-        #           prog_bar=True, logger=True, on_step=True, on_epoch=True, sync_dist=True)
-        #self.log("val/aeloss", aeloss,
-        #           prog_bar=True, logger=True, on_step=True, on_epoch=True, sync_dist=True)
-        #self.log("performance", {"val/rec_loss": rec_loss, "val/ae_loss": aeloss}, sync_dist=True)
-        #self.log_dict(log_dict_ae)
-        #self.log_dict(log_dict_disc)
         return self.log_dict
 
     def get_cosine_scheduler(self, optimizer, max_lr, min_lr, warmup_iter, base_lr, T_max):
@@ -174,6 +145,7 @@ class VQModel(pl.LightningModule):
                                   list(self.post_quant_conv.parameters()),
                                   lr=lr, betas=(0.9, 0.95),
                                   weight_decay=1e-4
+                                  
                                   )
         sche_ae = self.get_cosine_scheduler(
                                             optimizer=opt_ae,
@@ -183,19 +155,6 @@ class VQModel(pl.LightningModule):
                                             base_lr=lr,
                                             T_max=self.max_iter
                                             )
-#        opt_disc = torch.optim.Adam(self.loss.discriminator.parameters(),
-#                                    lr=lr, betas=(0.9, 0.95),
-#                                    weight_decay=1e-4
-#                                    )
-#        sche_disc = self.get_cosine_scheduler(
-#                                              optimizer=opt_disc,
-#                                              max_lr=lr,
-#                                              min_lr=lr/10,
-#                                              warmup_iter=self.warm_iter,
-#                                              base_lr=lr,
-#                                              T_max=self.max_iter
-#                                              )
-#        return [opt_ae, opt_disc], [{"scheduler":sche_ae, "interval":"step"}, {"scheduler":sche_disc, "interval":"step"}]
         return [opt_ae], [{"scheduler":sche_ae, "interval":"step"}]
 
 

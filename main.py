@@ -77,7 +77,7 @@ if __name__ == "__main__":
     parser.add_argument('--img-size',     type=int,   default=256,        help="image size")
     parser.add_argument("--bsize",        type=int,   default=256,        help="batch size")
     parser.add_argument("--mask-value",   type=int,   default=1024,       help="number of epoch")
-    parser.add_argument("--lr",           type=float, default=5e-5,       help="learning rate to train the transformer")
+    parser.add_argument("--lr",           type=float, default=1e-4,       help="learning rate to train the transformer")
     parser.add_argument("--cfg_w",        type=float, default=3,          help="classifier free guidance wight")
     parser.add_argument("--r_temp",       type=float, default=4.5,        help="Gumbel noise temperature when sampling")
     parser.add_argument("--sm_temp",      type=float, default=1.,         help="temperature before softmax when sampling")
@@ -114,7 +114,7 @@ if __name__ == "__main__":
             configs = yaml.load(f, Loader=yaml.FullLoader)
         vq_gan = VQ_GAN_Trainer(configs["data"], configs["model"])
         vq_gan.fit()
-    torch.cuda.set_device(0)
+    torch.cuda.set_device(6)
     print(f"{world_size} GPU found")
     args.is_master = True
     args.is_multi_gpus = False
