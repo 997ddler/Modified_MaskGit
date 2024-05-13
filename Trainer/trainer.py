@@ -199,7 +199,7 @@ class Trainer(object):
             params = net.parameters()
 
         if mode == "AdamW":
-            return optim.AdamW(params, lr, weight_decay=1e-5, **kwargs)
+            return optim.AdamW(params, lr, weight_decay=1e-4, **kwargs)
         elif mode == "Adam":
             return optim.Adam(params, lr, **kwargs)
         return None

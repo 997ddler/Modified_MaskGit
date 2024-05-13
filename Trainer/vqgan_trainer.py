@@ -6,6 +6,7 @@ from torchvision.datasets import ImageFolder
 
 import torch
 import pytorch_lightning as pl
+from pytorch_lightning.callbacks import EarlyStopping
 
 
 class VQ_GAN_Trainer(object):
@@ -51,15 +52,19 @@ class VQ_GAN_Trainer(object):
     def fit(self):
         model = self.get_network()
         train_loader, test_loader = self.get_data_loader()
+
+        early_stop_callback = EarlyStopping(monitor='val/perplexity', mode='max')
+
         model.set_iter_config(len(train_loader) * self.warm_epoch, len(train_loader) * self.max_epoch)
         logger = pl.loggers.TensorBoardLogger(save_dir=self.model_configs['log_dir'])
         trainer = pl.Trainer(
                             max_epochs=self.max_epoch,
                             accelerator='gpu',
-                            devices=[6],
+                            devices=[0],
                             log_every_n_steps=100,
-                            check_val_every_n_epoch=45,
-                            logger=logger
+                            # check_val_every_n_epoch=2,
+                            logger=logger,
+                            callbacks=[early_stop_callback]
                             )
         trainer.fit(model, train_loader, test_loader)
         trainer.save_checkpoint(self.model_configs['save_path'] + '/last.ckpt')

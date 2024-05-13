@@ -20,8 +20,8 @@ class SampleAndEval:
         super().__init__()
         self.inception_metrics = MultiInceptionMetrics(
             reset_real_features=False,
-            compute_unconditional_metrics=False,
-            compute_conditional_metrics=True,
+            compute_unconditional_metrics=True,
+            compute_conditional_metrics=False,
             compute_conditional_metrics_per_class=compute_per_class_metrics,
             num_classes=num_classes,
             num_inception_chunks=10,
@@ -69,20 +69,23 @@ class SampleAndEval:
                 break
 
             with torch.no_grad():
-                if isinstance(labels, list):
-                    labels = clip.tokenize(labels[random.randint(0, 4)]).to(self.device)
-                    labels = module.clip.encode_text(labels).float()
-                else:
-                    labels = labels.to(self.device)
+                #if isinstance(labels, list):
+                #    labels = clip.tokenize(labels[random.randint(0, 4)]).to(self.device)
+                #    labels = module.clip.encode_text(labels).float()
+                #else:
+                #    labels = labels.to(self.device)
+                #images = module.reconstruct(images.to('cuda'))[0]
                 images = module.sample(nb_sample=images.size(0),
-                                       labels=labels,
+                                       #labels=labels,
                                        sm_temp=module.args.sm_temp,
                                        w=module.args.cfg_w,
                                        randomize="linear",
                                        r_temp=module.args.r_temp,
                                        sched_mode=module.args.sched_mode,
-                                       step=module.args.step)[0]
+                                       step=12)[0]
                 images = images.float()
                 self.inception_metrics.update(remap_image_torch(images),
-                                              labels,
-                                              image_type="conditional")
+                                              # labels,
+                                              # image_type="conditional"
+                                              image_type="unconditional"
+                                              )

@@ -34,7 +34,7 @@ class MaskGIT(Trainer):
         self.vit = self.get_network("vit")                                      # Load Masked Bidirectional Transformer   
         self.patch_size = self.args.img_size // 2**(self.ae.encoder.num_resolutions-1)     # Load VQGAN
         self.criterion = self.get_loss("cross_entropy", label_smoothing=0.1)    # Get cross entropy loss
-        self.optim = self.get_optim(self.vit, self.args.lr, betas=(0.9, 0.96))  # Get Adam Optimizer with weight decay
+        self.optim = self.get_optim(self.vit, self.args.lr, betas=(0.9, 0.95))  # Get Adam Optimizer with weight decay
         self.loss_record = []
         
         # Load data if aim to train or test the model
@@ -56,7 +56,7 @@ class MaskGIT(Trainer):
         if archi == "vit":
             model = MaskTransformer(
                 #img_size=self.args.img_size, hidden_dim=768, codebook_size=self.codebook_size, depth=8, heads=16, mlp_dim=3072, dropout=0.1     # Tiny
-                img_size=self.args.img_size, hidden_dim=768, codebook_size=self.codebook_size, depth=8, heads=16, mlp_dim=3072, dropout=0.1     # Small
+                img_size=self.args.img_size, hidden_dim=256, codebook_size=self.codebook_size, depth=8, heads=16, mlp_dim=1024, dropout=0.1     # Small
                 # img_size=self.args.img_size, hidden_dim=1024, codebook_size=1024, depth=32, heads=16, mlp_dim=3072, dropout=0.1  # Big
                 # img_size=self.args.img_size, hidden_dim=1024, codebook_size=1024, depth=48, heads=16, mlp_dim=3072, dropout=0.1  # Huge
             )
@@ -175,12 +175,10 @@ class MaskGIT(Trainer):
         # Start training for 1 epoch
         for x, y in bar:
             x = x.to(self.args.device)
-            y = y.to(self.args.device)
+            #y = y.to(self.args.device)
             x = 2 * x - 1  # normalize from x in [0,1] to [-1,1] for VQGAN # when i train a VQ GAN i didn't transform the data to -1, 1 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
             # Drop xx% of the condition for cfg
-            drop_label = torch.empty(y.size()).uniform_(0, 1) < self.args.drop_label
-
+            #drop_label = torch.empty(y.size()).uniform_(0, 1) < self.args.drop_label
             # VQGAN encoding to img tokens
             with torch.no_grad():
                 emb, to_return = self.ae.encode(x)
@@ -190,7 +188,7 @@ class MaskGIT(Trainer):
             # Mask the encoded tokens
             masked_code, mask = self.get_mask_code(code, value=self.args.mask_value, codebook_size=self.codebook_size)
             with torch.cuda.amp.autocast():                             # half precision
-                pred = self.vit(masked_code, y, drop_label=drop_label)  # The unmasked tokens prediction
+                pred = self.vit(masked_code)  # The unmasked tokens prediction
                 # Cross-entropy loss
                 loss = self.criterion(pred.reshape(-1, self.codebook_size + 1), code.view(-1)) / self.args.grad_cum
 
@@ -302,9 +300,10 @@ class MaskGIT(Trainer):
                 _x = self.ae.decode_code(torch.clamp(code, 0, self.codebook_size-1))
                 if mask is not None:
                     # Decoding reel code with mask to hide
-                    #mask = mask.view(code.size(0), 1, self.patch_size, self.patch_size).float()
-                    #__x2 = _x * (1 - F.interpolate(mask, (self.args.img_size, self.args.img_size)).to(self.args.device))
+                    mask = mask.view(code.size(0), 1, self.patch_size, self.patch_size).float()
                     l_visual.append(_x)
+                    __x2 = _x * (1 - F.interpolate(mask, (self.args.img_size, self.args.img_size)).to(self.args.device))
+                    l_visual.append(__x2)
             if masked_code is not None:
                 # Decoding masked code
                 masked_code = masked_code.view(code.size(0), self.patch_size, self.patch_size)
@@ -320,7 +319,7 @@ class MaskGIT(Trainer):
         return torch.cat(l_visual, dim=0)
 
     def sample(self, init_code=None, nb_sample=50, labels=None, sm_temp=1, w=3,
-               randomize="linear", r_temp=4.5, sched_mode="arccos", step=12):
+               randomize="linear", r_temp=4.5, sched_mode="arccos", step=15):
         """ Generate sample with the MaskGIT model
            :param
             init_code   -> torch.LongTensor: nb_sample x 16 x 16, the starting initialization code
@@ -340,12 +339,12 @@ class MaskGIT(Trainer):
         l_codes = []  # Save the intermediate codes predicted
         l_mask = []   # Save the intermediate masks
         with torch.no_grad():
-            if labels is None:  # Default classes generated
+            #if labels is None:  # Default classes generated
                 # goldfish, chicken, tiger cat, hourglass, ship, dog, race car, airliner, teddy bear, random
-                labels = [1, 7, 282, 604, 724, 179, 751, 404, 850, random.randint(0, 999)] * (nb_sample // 10)
-                labels = torch.LongTensor(labels).to(self.args.device)
+            #    labels = [1, 7, 282, 604, 724, 179, 751, 404, 850, random.randint(0, 999)] * (nb_sample // 10)
+            #    labels = torch.LongTensor(labels).to(self.args.device)
 
-            drop = torch.ones(nb_sample, dtype=torch.bool).to(self.args.device)
+            #drop = torch.ones(nb_sample, dtype=torch.bool).to(self.args.device)
             if init_code is not None:  # Start with a pre-define code
                 code = init_code
                 mask = (init_code == self.codebook_size).float().view(nb_sample, self.patch_size*self.patch_size)
@@ -374,14 +373,19 @@ class MaskGIT(Trainer):
                     if w != 0:
                         # Model Prediction
                         logit = self.vit(torch.cat([code.clone(), code.clone()], dim=0),
-                                         torch.cat([labels, labels], dim=0),
-                                         torch.cat([~drop, drop], dim=0))
+                                        # torch.cat([labels, labels], dim=0),
+                                        # torch.cat([~drop, drop], dim=0)
+                                        )
                         logit_c, logit_u = torch.chunk(logit, 2, dim=0)
                         _w = w * (indice / (len(scheduler)-1))
                         # Classifier Free Guidance
                         logit = (1 + _w) * logit_c - _w * logit_u
                     else:
-                        logit = self.vit(code.clone(), labels, drop_label=~drop)
+                        logit = self.vit(
+                                        code.clone(),
+                                        #labels,
+                                        #drop_label=~drop
+                                        )
 
                 prob = torch.softmax(logit * sm_temp, -1)
                 # Sample the code from the softmax prediction
@@ -423,3 +427,7 @@ class MaskGIT(Trainer):
 
         self.vit.train()
         return x, l_codes, l_mask
+
+    def reconstruct(self, input):
+        output = self.ae(input)
+        return output

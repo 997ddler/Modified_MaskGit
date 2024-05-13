@@ -114,7 +114,7 @@ if __name__ == "__main__":
             configs = yaml.load(f, Loader=yaml.FullLoader)
         vq_gan = VQ_GAN_Trainer(configs["data"], configs["model"])
         vq_gan.fit()
-    torch.cuda.set_device(6)
+    torch.cuda.set_device(5)
     print(f"{world_size} GPU found")
     args.is_master = True
     args.is_multi_gpus = False

@@ -94,8 +94,8 @@ class MultiInceptionMetrics(Metric):
     fake_features_num_samples: Tensor
 
     def __init__(self, feature: Union[int, Module] = 2048, reset_real_features: bool = True,
-                 compute_unconditional_metrics: bool = False, compute_conditional_metrics: bool = True,
-                 compute_conditional_metrics_per_class: bool = True, num_classes: int = 1000,
+                 compute_unconditional_metrics: bool = True, compute_conditional_metrics: bool = False,
+                 compute_conditional_metrics_per_class: bool = False, num_classes: int = 1000,
                  num_inception_chunks: int = 10, manifold_k: int = 3, **kwargs: Any, ) -> None:
         super().__init__(**kwargs)
         self.compute_unconditional_metrics = compute_unconditional_metrics

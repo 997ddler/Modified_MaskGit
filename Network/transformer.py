@@ -130,8 +130,10 @@ class MaskTransformer(nn.Module):
         self.nclass = nclass
         self.patch_size = img_size // 16
         self.codebook_size = codebook_size
-        self.tok_emb = nn.Embedding(codebook_size+1+nclass+1, hidden_dim)  # +1 for the mask of the viz token, +1 for mask of the class
-        self.pos_emb = nn.init.trunc_normal_(nn.Parameter(torch.zeros(1, (self.patch_size*self.patch_size)+1, hidden_dim)), 0., 0.02)
+        #self.tok_emb = nn.Embedding(codebook_size+1+nclass+1, hidden_dim)  # +1 for the mask of the viz token, +1 for mask of the class
+        self.tok_emb = nn.Embedding(codebook_size+1, hidden_dim)
+        #self.pos_emb = nn.init.trunc_normal_(nn.Parameter(torch.zeros(1, (self.patch_size*self.patch_size)+1, hidden_dim)), 0., 0.02)
+        self.pos_emb = nn.init.trunc_normal_(nn.Parameter(torch.zeros(1, (self.patch_size*self.patch_size), hidden_dim)), 0., 0.02)
 
         # First layer before the Transformer block
         self.first_layer = nn.Sequential(
@@ -156,9 +158,10 @@ class MaskTransformer(nn.Module):
         )
 
         # Bias for the last linear output
-        self.bias = nn.Parameter(torch.zeros((self.patch_size*self.patch_size)+1, codebook_size+1+nclass+1))
+        # self.bias = nn.Parameter(torch.zeros((self.patch_size*self.patch_size)+1, codebook_size+1+nclass+1))
+        self.bias = nn.Parameter(torch.zeros((self.patch_size*self.patch_size), codebook_size+1))
 
-    def forward(self, img_token, y=None, drop_label=None, return_attn=False):
+    def forward(self, img_token, return_attn=False):
         """ Forward.
             :param:
                 img_token      -> torch.LongTensor: bsize x 16 x 16, the encoded image tokens
@@ -171,10 +174,11 @@ class MaskTransformer(nn.Module):
         """
         b, w, h = img_token.size()
 
-        cls_token = y.view(b, -1) + self.codebook_size + 1  # Shift the class token by the amount of codebook
+        #cls_token = y.view(b, -1) + self.codebook_size + 1  # Shift the class token by the amount of codebook
 
-        cls_token[drop_label] = self.codebook_size + 1 + self.nclass  # Drop condition
-        input = torch.cat([img_token.view(b, -1), cls_token.view(b, -1)], -1)  # concat visual tokens and class tokens
+        # cls_token[drop_label] = self.codebook_size + 1 + self.nclass  # Drop condition
+        #input = torch.cat([img_token.view(b, -1), cls_token.view(b, -1)], -1)  # concat visual tokens and class tokens
+        input = img_token.view(b, -1)
         tok_embeddings = self.tok_emb(input)
 
         # Position embedding
