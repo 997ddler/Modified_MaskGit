@@ -41,7 +41,6 @@ class VectorQuant(_VQBaseLayer):
 			inplace_optimizer: torch.optim.Optimizer = None,
 			using_statistics: bool = False,
 			use_learnable_std: bool = False,
-			alter_penalty: str = 'default',
 			use_ema_update=False,
 			decay=0.99,
 			eps=1e-5,
@@ -50,7 +49,6 @@ class VectorQuant(_VQBaseLayer):
 
 		super().__init__(feature_size, num_codes, **kwargs)
 		self.loss_fn, self.dist_fn = get_dist_fns('euclidean')
-		self.alter_penalty = alter_penalty
 
 		if beta < 0.0 or beta > 1.0:
 			raise ValueError(f'beta must be in [0, 1] but got {beta}')
@@ -157,16 +155,6 @@ class VectorQuant(_VQBaseLayer):
 
 		# NOTE to save compute, we assumed Q did not change.
 		return z_q, d, q
-
-	def alpha_loss(self):
-		if hasattr(self, 'affine_transform'):
-			if self.alter_penalty == 'small':
-				return self.affine_transform.alpha_loss_3()
-			elif self.alter_penalty == 'between1':
-				return self.affine_transform.alpha_loss_2()
-			else:
-				return self.affine_transform.alpha_loss_1()
-
 
 	@torch.no_grad()
 	def get_codebook(self):

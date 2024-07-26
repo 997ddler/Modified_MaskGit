@@ -90,25 +90,6 @@ class AffineTransform(nn.Module):
 			raise Exception('inner layer is None')
 
 
-	def alpha_loss_1(self):
-		if self.use_learnable_std:
-			return - (self.alpha ** 2).sum()
-		else:
-			return 1.0
-
-	def alpha_loss_2(self):
-		if self.use_learnable_std:
-			return ((1 - self.alpha) ** 2).sum()
-		else:
-			return 1.0
-
-	def alpha_loss_3(self):
-		if self.use_learnable_std:
-			self.iter = self.iter + 1
-			return -self.iter * 0.5 * (self.alpha ** 2).sum()
-		else:
-			return 1.0
-
 	def get_dynamic_info(self):
 		if self.use_learnable_std:
 			return self.arr_alpha0, self.arr_alpha1, self.arr_alpha_mean
