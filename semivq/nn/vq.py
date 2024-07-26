@@ -8,7 +8,6 @@ from semivq.norms import with_codebook_normalization
 from .vq_base import _VQBaseLayer
 from .affine import AffineTransform
 from .. import utils
-from semivq.nn.gamma_learner import gamma_learner
 
 
 class VectorQuant(_VQBaseLayer):
@@ -43,8 +42,6 @@ class VectorQuant(_VQBaseLayer):
 			using_statistics: bool = False,
 			use_learnable_std: bool = False,
 			alter_penalty: str = 'default',
-			use_learnable_gamma=False,
-			gamma_policy='default',
 			use_ema_update=False,
 			decay=0.99,
 			eps=1e-5,
@@ -54,8 +51,6 @@ class VectorQuant(_VQBaseLayer):
 		super().__init__(feature_size, num_codes, **kwargs)
 		self.loss_fn, self.dist_fn = get_dist_fns('euclidean')
 		self.alter_penalty = alter_penalty
-		if use_learnable_gamma:
-			self.gamma_learner = gamma_learner(feature_size, num_codes, gamma_policy)
 
 		if beta < 0.0 or beta > 1.0:
 			raise ValueError(f'beta must be in [0, 1] but got {beta}')
@@ -149,8 +144,6 @@ class VectorQuant(_VQBaseLayer):
 
 		z_q = F.embedding(q, codebook)
 
-		#if hasattr(self, 'gamma_learner'):
-		#	z_q = self.gamma_learner(z_q, codebook)
 
 		if self.training and hasattr(self, 'inplace_codebook_optimizer'):
 			# update codebook inplace 
