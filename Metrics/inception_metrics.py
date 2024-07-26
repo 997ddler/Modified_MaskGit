@@ -98,6 +98,7 @@ class MultiInceptionMetrics(Metric):
                  compute_conditional_metrics_per_class: bool = False, num_classes: int = 1000,
                  num_inception_chunks: int = 10, manifold_k: int = 3, **kwargs: Any, ) -> None:
         super().__init__(**kwargs)
+        print(compute_unconditional_metrics)
         self.compute_unconditional_metrics = compute_unconditional_metrics
         self.compute_conditional_metrics = compute_conditional_metrics
         self.compute_conditional_metrics_per_class = compute_conditional_metrics_per_class

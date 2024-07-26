@@ -35,6 +35,7 @@ class Trainer(object):
 
     def __init__(self, args):
         """ Initialization of the Trainer """
+        self.use_label = True
         self.args = args
         self.writer = None if args.writer_log == "" else SummaryWriter(log_dir=args.writer_log)  # Tensorboard writer
 
@@ -146,16 +147,15 @@ class Trainer(object):
 
             return train_loader, None
         elif self.args.data == 'celeba':
-            data=ImageFolder(
-                        root='/home/zwh/img_align_celeba', 
-                        transform=transforms.Compose([
+            transform=transforms.Compose([
                                                         transforms.Resize(self.args.img_size),
                                                         transforms.RandomCrop((self.args.img_size, self.args.img_size)),
                                                         transforms.RandomHorizontalFlip(),
                                                         transforms.ToTensor(),
                                                     ])
-                        )
-            data_train, data_test =torch.utils.data.random_split(data, [int(len(data) * 0.8), len(data) - int(0.8 * len(data))])
+            data_train = ImageFolder(root="/data/zwh/celeba_train_folder", transform=transform)
+            data_test = ImageFolder(root="/data/zwh/celeba_test_folder", transform=transform)
+            self.use_label = False  
         train_sampler = DistributedSampler(data_train, shuffle=True) if self.args.is_multi_gpus else None
         test_sampler = DistributedSampler(data_test, shuffle=True) if self.args.is_multi_gpus else None
 
@@ -188,8 +188,8 @@ class Trainer(object):
         else:
             self.writer.add_scalar(tag=names, scalar_value=scalar, global_step=iter)
 
-    @staticmethod
-    def get_optim(net, lr, mode="AdamW", **kwargs):
+    @staticmethod 
+    def get_optim(net, lr, mode="AdamW", warm_up_mode='constant', **kwargs):
         """ Get the optimizer Adam or Adam with weight decay """
         if isinstance(net, list):
             params = []
@@ -198,11 +198,17 @@ class Trainer(object):
         else:
             params = net.parameters()
 
+        optimizer = None
+        scheduler = None
         if mode == "AdamW":
-            return optim.AdamW(params, lr, weight_decay=1e-4, **kwargs)
+            optimizer = optim.AdamW(params, lr, weight_decay=4.5e-2, **kwargs)
         elif mode == "Adam":
-            return optim.Adam(params, lr, **kwargs)
-        return None
+            optimizer = optim.Adam(params, lr, **kwargs)
+        
+        #if warm_up_mode == 'constant':
+        #    scheduler = optim.lr_scheduler.ConstantLR(optimizer, total_iters=2)
+
+        return optimizer, scheduler
 
     @staticmethod
     def get_loss(mode="l1", **kwargs):

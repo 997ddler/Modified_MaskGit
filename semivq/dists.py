@@ -56,7 +56,6 @@ def euclidean_distance(z, z_q):
 					f'expected z and z_q to have the same shape but got ' + \
 					f'{z.size()} vs {z_q.size()}'
 					)
-
 	z, z_q = z.reshape(z.size(0), -1), z_q.reshape(z_q.size(0), -1)
 	return ((z_q - z) ** 2).mean(1) #.sqrt()
 

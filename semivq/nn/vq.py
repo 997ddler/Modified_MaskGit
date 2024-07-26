@@ -45,6 +45,9 @@ class VectorQuant(_VQBaseLayer):
 			alter_penalty: str = 'default',
 			use_learnable_gamma=False,
 			gamma_policy='default',
+			use_ema_update=False,
+			decay=0.99,
+			eps=1e-5,
 			**kwargs,
 	):
 
@@ -61,9 +64,19 @@ class VectorQuant(_VQBaseLayer):
 		self.nu = sync_nu
 		self.codebook = nn.Embedding(self.num_codes, self.feature_size)
 
+		self.use_ema_update = use_ema_update
+		if self.use_ema_update:
+			self.register_buffer('cluster_size', torch.zeros(num_codes))
+			self.register_buffer('embed_avg', self.codebook.weight.clone())
+			self.decay = decay
+			self.eps = eps
+			self.codebook.requires_grad_ = False
+
+
 		if inplace_optimizer is not None:
 			if beta != 1.0:
 				raise ValueError('inplace_optimizer can only be used with beta=1.0')
+			print('using in inplace optimizer')
 			self.inplace_codebook_optimizer = inplace_optimizer(self.codebook.parameters())
 
 		if affine_lr > 0 or use_learnable_std:
@@ -99,6 +112,8 @@ class VectorQuant(_VQBaseLayer):
 
 	def compute_loss(self, z_e, z_q):
 		""" computes loss between z and z_q """
+		if self.use_ema_update:
+			return self.beta * self.loss_fn(z_e, z_q.detach())
 		return ((1.0 - self.beta) * self.loss_fn(z_e, z_q.detach()) + \
 				(self.beta) * self.loss_fn(z_e.detach(), z_q))
 
@@ -134,13 +149,12 @@ class VectorQuant(_VQBaseLayer):
 
 		z_q = F.embedding(q, codebook)
 
-		if hasattr(self, 'gamma_learner'):
-			z_q = self.gamma_learner(z_q, codebook)
+		#if hasattr(self, 'gamma_learner'):
+		#	z_q = self.gamma_learner(z_q, codebook)
 
 		if self.training and hasattr(self, 'inplace_codebook_optimizer'):
 			# update codebook inplace 
 			inplace_loss = ((z_q - z.detach()) ** 2).mean()
-			# inplace_loss.requires_grad_(True)
 			inplace_loss.backward(retain_graph=True)
 			self.inplace_codebook_optimizer.step()
 			self.inplace_codebook_optimizer.zero_grad()
@@ -160,6 +174,7 @@ class VectorQuant(_VQBaseLayer):
 			else:
 				return self.affine_transform.alpha_loss_1()
 
+
 	@torch.no_grad()
 	def get_codebook(self):
 		cb = self.codebook.weight
@@ -167,6 +182,7 @@ class VectorQuant(_VQBaseLayer):
 		 	cb, alpha = self.affine_transform(cb)
 		return cb
 	
+
 	@torch.no_grad()
 	def get_alpha(self):
 		if hasattr(self, 'affine_transform'):
@@ -190,13 +206,16 @@ class VectorQuant(_VQBaseLayer):
 			z = self.to_original_format(z)
 			return z, {}
 
+
 		######
 		## (2) quantize latent vector
 		######
 
 		z_q, d, q = self.quantize(self.codebook.weight, z)
 
-		e_mean = F.one_hot(q, num_classes=self.num_codes).view(-1, self.num_codes).float().mean(0)
+
+		encodings = F.one_hot(q, num_classes=self.num_codes)
+		e_mean = encodings.view(-1, self.num_codes).float().mean(0)
 		perplexity = torch.exp(-torch.sum(e_mean * torch.log(e_mean + 1e-7)))
 		active_ratio = q.unique().numel() / self.num_codes * 100
 
@@ -212,6 +231,21 @@ class VectorQuant(_VQBaseLayer):
 
 		z_q = self.straight_through_approximation(z, z_q)
 		z_q = self.to_original_format(z_q)
+		
+		if self.use_ema_update and self.training: 
+			with torch.no_grad():
+			# bhw * num_codes
+				encodings = encodings.view(-1, self.num_codes)
+				# bhw * feature
+				z_flatten = z.reshape(-1, self.feature_size)
+				self.cluster_size.data.mul_(self.decay).add_(encodings.sum(0), alpha=1 - self.decay)
+				# (num_codes * bhw) * (bhw, feature) = (num * feature)
+				self.embed_avg.data.mul_(self.decay).add_(encodings.transpose(0, 1).type(z_flatten.dtype) @ z_flatten, alpha=1 - self.decay)
+				n = self.cluster_size.sum()
+				smoothed_cluster_size = ((self.cluster_size + self.eps) / (n + self.num_codes * self.eps) * n)
+				codebook_normalized = self.embed_avg / smoothed_cluster_size.unsqueeze(1)
+				self.codebook.weight.copy_(codebook_normalized)	
+
 
 		return z_q, to_return
 
@@ -221,16 +255,15 @@ class VectorQuant(_VQBaseLayer):
 		return None
 	
 	def get_codebook_entry(self, indices, shape):
-
-	# get quantized latent vectors
+		# get quantized latent vectors
 		codebook = self.get_codebook()
 		z_q = F.embedding(indices, codebook)
-		#print(z_q.shape)
-		#z_q = self.to_original_format(z_q)
-		#print(shape)
+		# z_q = self.to_original_format(z_q)
+
 		if shape is not None:
 			z_q = z_q.view(shape)
 			# reshape back to match original input shape
 			z_q = z_q.permute(0, 3, 1, 2).contiguous()
 
 		return z_q
+	

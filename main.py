@@ -11,7 +11,7 @@ from torch.distributed import init_process_group, destroy_process_group
 from Trainer.vit import MaskGIT
 import yaml
 
-from Trainer.vqgan_trainer import VQ_GAN_Trainer
+from Trainer.vqvae_trainer import VQ_VAE_Trainer
 
 
 def main(args):
@@ -33,6 +33,7 @@ def main(args):
             randomize = "linear"   # Noise scheduler
             step = 32              # Number of step
             sched_mode = "arccos"  # Mode of the scheduler
+            
             # Generate sample
             gen_sample, _, _ = maskgit.sample(nb_sample=labels.size(0), labels=labels, sm_temp=sm_temp, r_temp=r_temp, w=w,
                                               randomize=randomize, sched_mode=sched_mode, step=step)
@@ -43,28 +44,13 @@ def main(args):
     else:  # Begin training
         maskgit.fit()
 
-
-def ddp_setup():
-    """ Initialization of the multi_gpus training"""
-    init_process_group(backend="nccl")
-    torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
-
-
-def launch_multi_main(args):
-    """ Launch multi training"""
-    # os.environ["LOCAL_RANK"] = 0
-    ddp_setup()
-    args.device = int(os.environ["LOCAL_RANK"])
-    args.is_master = args.device == 0
-    main(args)
-    destroy_process_group()
-
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    
+    # the arguments for VIT
     parser.add_argument("--data",         type=str,   default="imagenet", help="dataset on which dataset to train")
     parser.add_argument("--data-folder",  type=str,   default="",         help="folder containing the dataset")
-    parser.add_argument("--vqgan-folder", type=str,   default="",         help="folder of the pretrained VQGAN")
+    parser.add_argument("--vqvae-folder", type=str,   default="",         help="folder of the pretrained VQVAE")
     parser.add_argument("--vit-folder",   type=str,   default="",         help="folder where to save the Transformer")
     parser.add_argument("--writer-log",   type=str,   default="",         help="folder where to store the logs")
     parser.add_argument("--sched_mode",   type=str,   default="arccos",   help="scheduler mode whent sampling")
@@ -72,30 +58,36 @@ if __name__ == "__main__":
     parser.add_argument('--channel',      type=int,   default=3,          help="rgb or black/white image")
     parser.add_argument("--num_workers",  type=int,   default=8,          help="number of workers")
     parser.add_argument("--step",         type=int,   default=8,          help="number of step for sampling")
-    parser.add_argument('--seed',         type=int,   default=42,         help="fix seed")
+    parser.add_argument('--seed',         type=int,   default=3072,       help="fix seed")
     parser.add_argument("--epoch",        type=int,   default=300,        help="number of epoch")
     parser.add_argument('--img-size',     type=int,   default=256,        help="image size")
     parser.add_argument("--bsize",        type=int,   default=256,        help="batch size")
-    parser.add_argument("--mask-value",   type=int,   default=1024,       help="number of epoch")
+    parser.add_argument("--mask-value",   type=int,   default=-1,         help="number of epoch")
     parser.add_argument("--lr",           type=float, default=1e-4,       help="learning rate to train the transformer")
-    parser.add_argument("--cfg_w",        type=float, default=3,          help="classifier free guidance wight")
+    parser.add_argument("--cfg_w",        type=float, default=0,          help="classifier free guidance wight")
     parser.add_argument("--r_temp",       type=float, default=4.5,        help="Gumbel noise temperature when sampling")
     parser.add_argument("--sm_temp",      type=float, default=1.,         help="temperature before softmax when sampling")
     parser.add_argument("--drop-label",   type=float, default=0.1,        help="drop rate for cfg")
+    parser.add_argument("--gen-img-dir",  type=str,   default="",         help="save all generated images to certain directory")
     parser.add_argument("--test-only",    action='store_true',            help="only evaluate the model")
     parser.add_argument("--resume",       action='store_true',            help="resume training of the model")
     parser.add_argument("--debug",        action='store_true',            help="debug")
-    parser.add_argument("--train_config", type=str,   default="",         help="training details of vqgan")
-    parser.add_argument("--local_rank", type=int)
-    # parser.add_argument("--gpu_set", type=int, default="2", help="select the gpu to train")
+    
+    # the arguments for VQVAE
+    parser.add_argument("--local-rank",   type=int,   default=0,          help="select device to train model")
+    parser.add_argument("--train-config", type=str,   default="",         help="the training configuration folder of VQVAE")
+    parser.add_argument("--test-vqvae",   action='store_true',            help="test vq vae only")
+
+    # parse the arguments
     args = parser.parse_args()
     args.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     args.iter = 0
     args.global_epoch = 0
 
-    training_vqgan = False
+    training_vqvae = False
 
-    if args.seed > 0: # Set the seed for reproducibility
+    # Set the seed for reproducibility
+    if args.seed > 0: 
         torch.manual_seed(args.seed)
         torch.cuda.manual_seed(args.seed)
         np.random.seed(args.seed)
@@ -103,20 +95,29 @@ if __name__ == "__main__":
         torch.backends.cudnn.enable = False
         torch.backends.cudnn.deterministic = True
 
-    world_size = torch.cuda.device_count()
     if args.train_config != "":
+        # read configuration
         path = os.path.join(
-            '/home/zwh/Modified_MaskGit/pretrained_maskgit/',
             args.train_config,
             'model.yaml'
         )
         with open(path, "r") as f:
             configs = yaml.load(f, Loader=yaml.FullLoader)
-        vq_gan = VQ_GAN_Trainer(configs["data"], configs["model"])
-        vq_gan.fit()
-    torch.cuda.set_device(5)
-    print(f"{world_size} GPU found")
-    args.is_master = True
-    args.is_multi_gpus = False
-    main(args)
+            
+        # load configuration and start training VQ-VAE
+        configs["model"]["model_name"] = args.train_config
+        vq_vae = VQ_VAE_Trainer(
+                                data_configs=configs["data"], 
+                                model_configs=configs["model"], 
+                                device_id=args.local_rank,
+                                test_vqvae=args.test_vqvae, 
+        )
+        vq_vae.fit()
+        print('finish training VQVAE')
+    else:
+        torch.cuda.set_device(args.local_rank)
+        args.is_master = True
+        args.is_multi_gpus = False 
+        args.writer_log = args.writer_log + '/' + args.vit_name
+        main(args)
             
