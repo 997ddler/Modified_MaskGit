@@ -7,6 +7,7 @@ from torchvision.transforms import transforms
 from Network.Taming.models.vqgan import VQModel
 from torchvision.datasets import ImageFolder
 from pytorch_lightning.callbacks import EarlyStopping
+from semivq.nn.utils.TinyImagenet import TinyImageNet
 
 class VQ_VAE_Trainer(object):
     """ Initialization the trainer of VQ-VAE
@@ -35,7 +36,7 @@ class VQ_VAE_Trainer(object):
         
         # get the Sample and Evaluate Class to process Evaluation
         # For maskgit, this model provide perplexity, MSE, Distances and active ratio, FID score and Reconstruction of pictures.
-        self.sae = SampleAndEvalVQ(device=device_id, num_images=20000, use_label=(data_configs['dataset'] == 'cifar10'))
+        # self.sae = SampleAndEvalVQ(device='cuda:{}'.format(device_id), num_images=20000, use_label=False)
 
 
     def get_network(self, archi='vqvae'):
@@ -54,7 +55,7 @@ class VQ_VAE_Trainer(object):
             )
             if self.test_vqvae:
                 # Load network from save path
-                checkpoint = torch.load(self.model_configs['save_path'] + '/last.ckpt', map_location="cpu")["state_dict"]
+                checkpoint = torch.load(self.model_configs['save_path'] + '/last.ckpt', map_location="cpu", weights_only=True)["state_dict"]
                 model.load_state_dict(checkpoint, strict=True)
                 model = model.eval()
                 model = model.to('cuda')    
@@ -93,6 +94,17 @@ class VQ_VAE_Trainer(object):
             train_dataset = ImageFolder(root="/data/zwh/celeba_train_folder", transform=transform)
             val_dataset = ImageFolder(root="/data/zwh/celeba_val_folder", transform=transform)
             test_dataset = ImageFolder(root="/data/zwh/celeba_test_folder", transform=transform)      
+        elif self.data_configs['dataset'] == 'tiny-imagenet':
+            transform=transforms.Compose([
+                                           transforms.Resize(128),
+                                           transforms.RandomCrop((128, 128)),
+                                           transforms.RandomHorizontalFlip(),
+                                           transforms.ToTensor(),
+                                           transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+                                        ])
+            train_dataset = TinyImageNet(root='/data/zwh/tiny-imagenet-200', train=True, transform=transform)
+            test_dataset = TinyImageNet(root='/data/zwh/tiny-imagenet-200', train=False, transform=transform)
+            val_dataset = None
         else:
             raise NotImplementedError
         
@@ -108,7 +120,6 @@ class VQ_VAE_Trainer(object):
         """ The whole process to use different methods to train and test model."""
         # get network
         self.model = self.get_network()
-        
         # get dataloader
         self.train_loader, self.test_loader, self.val_loader = self.get_data_loader()
         
@@ -125,7 +136,7 @@ class VQ_VAE_Trainer(object):
                             max_epochs=self.max_epoch,
                             accelerator='gpu',
                             devices=[self.device_id],
-                            log_every_n_steps=1000,
+                            log_every_n_steps=300,
                             check_val_every_n_epoch=2,
                             logger=logger,
                             callbacks=call_backs
@@ -137,6 +148,7 @@ class VQ_VAE_Trainer(object):
             trainer.save_checkpoint(self.model_configs['save_path'] + '/last.ckpt')
         
         # test
-        trainer.test()
-        self.model.eval()
+        trainer.test(model=self.model, dataloaders=self.test_loader)
+        
+        self.model.to('cuda:{}'.format(self.device_id))
         self.sae.compute_and_log_metrics(self)

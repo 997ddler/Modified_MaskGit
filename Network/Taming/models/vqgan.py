@@ -92,7 +92,9 @@ class VQModel(pl.LightningModule):
         diff = to_return['loss']
         dec = self.decode(quant)
         perpelxtiy = to_return['perplexity']
-        return dec, diff, perpelxtiy
+        active_ratio = to_return['active_ratio']
+        distance = to_return['d']
+        return dec, diff, [perpelxtiy, active_ratio, distance]
 
     def get_input(self, batch):
         """ get input of dataset """
@@ -101,16 +103,17 @@ class VQModel(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         x = self.get_input(batch)
-
-        xrec, qloss, perplexity = self(x)
-
+        xrec, qloss, arr = self(x)
+        perplexity, active_ratio, distance = arr[0], arr[1], torch.mean(arr[2])
         rec_loss = ((x.contiguous() - xrec.contiguous()) ** 2).mean()
         if self.ignore_commitmentloss:
             ae_loss = rec_loss
         else:
             ae_loss = rec_loss + self.codebook_weight * qloss
         log_dict_ae = {
+            "train/active" : active_ratio,
             "train/perplexity" : perplexity,
+            "distance" : distance,
             "train/recloss" : rec_loss,
             "train/cmtloss" : qloss,
             "train/aeloss"  : ae_loss,
@@ -121,33 +124,38 @@ class VQModel(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         x = self.get_input(batch)
-        xrec, qloss, perplexity = self(x)
-
+        xrec, qloss, arr = self(x)
+        perplexity, active_ratio, distance = arr[0], arr[1], torch.mean(arr[2])
         rec_loss = ((x.contiguous() - xrec.contiguous()) ** 2).mean()
         if self.ignore_commitmentloss:
             ae_loss = rec_loss
         else:
             ae_loss = rec_loss + self.codebook_weight * qloss
         log_dict = {
-            "val/aeloss"  : ae_loss,
-            "val/recloss" : rec_loss,
+            "val/active" : active_ratio,
             "val/perplexity" : perplexity,
+            "val/distance" : distance,
+            "val/recloss" : rec_loss,
             "val/cmtloss" : qloss,
+            "val/aeloss"  : ae_loss,
         }
         self.log_dict(log_dict)
         return self.log_dict
     
     def test_step(self, batch, batch_idx):
         x = self.get_input(batch)
-        xrec, qloss, perplexity = self(x)
+        xrec, qloss, arr = self(x)
 
+        perplexity, active_ratio, distance = arr[0], arr[1], torch.mean(arr[2])
         rec_loss = ((x.contiguous() - xrec.contiguous()) ** 2).mean()
         ae_loss = rec_loss + self.codebook_weight * qloss
         log_dict = {
-            "test/aeloss"  : ae_loss,
-            "test/recloss" : rec_loss,
+            "test/active" : active_ratio,
             "test/perplexity" : perplexity,
+            "test/distance" : distance,
+            "test/recloss" : rec_loss,
             "test/cmtloss" : qloss,
+            "test/aeloss"  : ae_loss,
         }
         self.log_dict(log_dict)
         return self.log_dict

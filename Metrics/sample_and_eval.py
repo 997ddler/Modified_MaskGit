@@ -41,7 +41,7 @@ class SampleAndEval(ABC):
             num_classes=num_classes,
             num_inception_chunks=10,
             manifold_k=3,
-        )
+        ).to(device)
         self.num_images = num_images
         self.true_features_computed = False
         self.device = device
@@ -72,7 +72,7 @@ class SampleAndEvalVIT(SampleAndEval):
         return:
     """
     def __init__(self, device, num_images=5000, compute_per_class_metrics=False, num_classes=10, use_label=True):
-        super().__init__(device, num_images=num_images, compute_per_class_metrics=False, num_classes=num_classes, use_label=True)
+        super().__init__(device, num_images=num_images, compute_per_class_metrics=False, num_classes=num_classes, use_label=use_label)
         self.save_images_dir = ''
 
     def compute_and_log_metrics(self, module):
@@ -218,7 +218,7 @@ class SampleAndEvalVIT(SampleAndEval):
                                                     128,
                                                     device="cuda",
                                                     dims=2048
-
+        )
 
 class SampleAndEvalVQ(SampleAndEval):    
     """
@@ -232,7 +232,7 @@ class SampleAndEvalVQ(SampleAndEval):
         return:
     """
     def __init__(self,device, num_images=5000, compute_per_class_metrics=False, num_classes=10, use_label=True) -> None:
-        super().__init__(device, num_images=5000, compute_per_class_metrics=False, num_classes=10, use_label=True)
+        super().__init__(device, num_images=5000, compute_per_class_metrics=False, num_classes=10, use_label=use_label)
         
     def compute_and_log_metrics(self, module):
         """compute and log FID score and save reconstructions pictures
@@ -242,16 +242,16 @@ class SampleAndEvalVQ(SampleAndEval):
         """
         # compute FID score
         with torch.no_grad():
-            self.compute_true_features(module.test_loader)
-            self.compute_fake_features(module.model, module.test_loader)
+            self.compute_true_images_features(module.test_loader)
+            self.compute_fake_images_features(module.model, module.test_loader)
             results = self.inception_metrics.compute()
             metrics = {f"Eval/{k}": v for k, v in results.items()}
             print(metrics)
             
             # save reconstructions
             model_name = module.model_configs['model_name']
-            save_path = module.model_confifs['model_name']
-            self.get_reconstructions(module.model, module.test_loader, model_name, save_path)
+            save_path = module.model_configs['save_path']
+            self.get_reconstruction(module.model, module.test_loader, model_name, save_path)
 
     def compute_true_images_features(self, dataloader):
         """ computing features of true images
@@ -269,7 +269,7 @@ class SampleAndEvalVQ(SampleAndEval):
                 break
 
             images = images.to('cuda')
-            self.inception.update(remap_image_torch(images),image_type="real")
+            self.inception_metrics.update(remap_image_torch(images),image_type="real")
 
     def compute_fake_images_features(self, module, dataloader):
         """ computing features of reconstructed images
@@ -290,9 +290,9 @@ class SampleAndEvalVQ(SampleAndEval):
             
             images = images.to('cuda')
             with torch.no_grad():
-                images, _, _ = model(images)
+                images, _, _ = module(images)
                 images = images.float()
-                self.inception.update(remap_image_torch(images), image_type="unconditional")
+                self.inception_metrics.update(remap_image_torch(images), image_type="unconditional")
 
     def get_reconstruction(self, model, dataloader, model_name, save_path):
         """ get reconstructed images and save them
@@ -303,7 +303,8 @@ class SampleAndEvalVQ(SampleAndEval):
                 save_path  -> directory to be saved
             return:
         """
-        batch = next(iter(dataloader))[0][64 : ]
+        
+        batch = next(iter(dataloader))[0][32 : ]
         reco, _, _  = model(batch.cuda())
         ori = make_grid(batch, 8, padding=2, normalize=True).permute(1, 2, 0).cpu().numpy()
         reco = make_grid(reco.float(), 8, padding=2, normalize=True).permute(1, 2, 0).cpu().numpy()

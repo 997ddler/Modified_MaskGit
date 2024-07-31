@@ -105,7 +105,7 @@ if __name__ == "__main__":
             configs = yaml.load(f, Loader=yaml.FullLoader)
             
         # load configuration and start training VQ-VAE
-        configs["model"]["model_name"] = args.train_config
+        configs["model"]["model_name"] = os.path.basename(args.train_config)
         vq_vae = VQ_VAE_Trainer(
                                 data_configs=configs["data"], 
                                 model_configs=configs["model"], 
